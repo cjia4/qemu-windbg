@@ -18,8 +18,11 @@
  */
 
 #include "qemu/osdep.h"
+#include "qemu-common.h"
 #include "qemu.h"
+#include "user-internals.h"
 #include "cpu_loop-common.h"
+#include "signal-common.h"
 
 static inline uint64_t cpu_ppc_get_tb(CPUPPCState *env)
 {
@@ -46,6 +49,11 @@ uint32_t cpu_ppc_load_atbu(CPUPPCState *env)
     return cpu_ppc_get_tb(env) >> 32;
 }
 
+uint64_t cpu_ppc_load_vtb(CPUPPCState *env)
+{
+    return cpu_ppc_get_tb(env);
+}
+
 uint32_t cpu_ppc601_load_rtcu(CPUPPCState *env)
 __attribute__ (( alias ("cpu_ppc_load_tbu") ));
 
@@ -67,7 +75,7 @@ int ppc_dcr_write (ppc_dcr_t *dcr_env, int dcrn, uint32_t val)
 
 void cpu_loop(CPUPPCState *env)
 {
-    CPUState *cs = CPU(ppc_env_get_cpu(env));
+    CPUState *cs = env_cpu(env);
     target_siginfo_t info;
     int trapnr;
     target_ulong ret;
@@ -261,6 +269,7 @@ void cpu_loop(CPUPPCState *env)
             queue_signal(env, info.si_signo, QEMU_SI_FAULT, &info);
             break;
         case POWERPC_EXCP_SYSCALL:  /* System call exception                 */
+        case POWERPC_EXCP_SYSCALL_VECTORED:
             cpu_abort(cs, "Syscall exception while in user mode. "
                       "Aborting\n");
             break;
@@ -416,12 +425,6 @@ void cpu_loop(CPUPPCState *env)
             cpu_abort(cs, "Maintenance exception while in user mode. "
                       "Aborting\n");
             break;
-        case POWERPC_EXCP_STOP:     /* stop translation                      */
-            /* We did invalidate the instruction cache. Go on */
-            break;
-        case POWERPC_EXCP_BRANCH:   /* branch instruction:                   */
-            /* We just stopped because of a branch. Go on */
-            break;
         case POWERPC_EXCP_SYSCALL_USER:
             /* system call in user-mode emulation */
             /* WARNING:
@@ -485,11 +488,12 @@ void target_cpu_copy_regs(CPUArchState *env, struct target_pt_regs *regs)
 #if defined(TARGET_PPC64)
     int flag = (env->insns_flags2 & PPC2_BOOKE206) ? MSR_CM : MSR_SF;
 #if defined(TARGET_ABI32)
-    env->msr &= ~((target_ulong)1 << flag);
+    ppc_store_msr(env, env->msr & ~((target_ulong)1 << flag));
 #else
-    env->msr |= (target_ulong)1 << flag;
+    ppc_store_msr(env, env->msr | (target_ulong)1 << flag);
 #endif
 #endif
+
     env->nip = regs->nip;
     for(i = 0; i < 32; i++) {
         env->gpr[i] = regs->gpr[i];

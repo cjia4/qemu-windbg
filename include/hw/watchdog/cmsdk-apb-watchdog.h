@@ -16,7 +16,7 @@
  * https://developer.arm.com/products/system-design/system-design-kits/cortex-m-system-design-kit
  *
  * QEMU interface:
- *  + QOM property "wdogclk-frq": frequency at which the watchdog is clocked
+ *  + Clock input "WDOGCLK": clock for the watchdog's timer
  *  + sysbus MMIO region 0: the register bank
  *  + sysbus IRQ 0: watchdog interrupt
  *
@@ -33,20 +33,28 @@
 
 #include "hw/sysbus.h"
 #include "hw/ptimer.h"
+#include "hw/clock.h"
+#include "qom/object.h"
 
 #define TYPE_CMSDK_APB_WATCHDOG "cmsdk-apb-watchdog"
-#define CMSDK_APB_WATCHDOG(obj) OBJECT_CHECK(CMSDKAPBWatchdog, (obj), \
-                                              TYPE_CMSDK_APB_WATCHDOG)
+OBJECT_DECLARE_SIMPLE_TYPE(CMSDKAPBWatchdog, CMSDK_APB_WATCHDOG)
 
-typedef struct CMSDKAPBWatchdog {
+/*
+ * This shares the same struct (and cast macro) as the base
+ * cmsdk-apb-watchdog device.
+ */
+#define TYPE_LUMINARY_WATCHDOG "luminary-watchdog"
+
+struct CMSDKAPBWatchdog {
     /*< private >*/
     SysBusDevice parent_obj;
 
     /*< public >*/
     MemoryRegion iomem;
     qemu_irq wdogint;
-    uint32_t wdogclk_frq;
+    bool is_luminary;
     struct ptimer_state *timer;
+    Clock *wdogclk;
 
     uint32_t control;
     uint32_t intstatus;
@@ -54,6 +62,7 @@ typedef struct CMSDKAPBWatchdog {
     uint32_t itcr;
     uint32_t itop;
     uint32_t resetstatus;
-} CMSDKAPBWatchdog;
+    const uint32_t *id;
+};
 
 #endif

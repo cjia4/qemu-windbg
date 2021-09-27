@@ -1,10 +1,10 @@
 #include "qemu/osdep.h"
 #include "qapi/error.h"
-#include "qemu-common.h"
 #include "qemu/host-utils.h"
 #include "qemu/range.h"
 #include "qemu/error-report.h"
 #include "hw/pci/shpc.h"
+#include "migration/qemu-file-types.h"
 #include "hw/pci/pci.h"
 #include "hw/pci/pci_bus.h"
 #include "hw/pci/msi.h"
@@ -249,6 +249,7 @@ static void shpc_free_devices_in_slot(SHPCDevice *shpc, int slot)
             hotplug_ctrl = qdev_get_hotplug_handler(DEVICE(affected_dev));
             hotplug_handler_unplug(hotplug_ctrl, DEVICE(affected_dev),
                                    &error_abort);
+            object_unparent(OBJECT(affected_dev));
         }
     }
 }
@@ -299,7 +300,6 @@ static void shpc_slot_command(SHPCDevice *shpc, uint8_t target,
             shpc_set_status(shpc, slot, SHPC_SLOT_STATUS_PRSNT_EMPTY,
                             SHPC_SLOT_STATUS_PRSNT_MASK);
             shpc->config[SHPC_SLOT_EVENT_LATCH(slot)] |=
-                SHPC_SLOT_EVENT_BUTTON |
                 SHPC_SLOT_EVENT_MRL |
                 SHPC_SLOT_EVENT_PRESENCE;
         }
@@ -546,7 +546,7 @@ void shpc_device_plug_cb(HotplugHandler *hotplug_dev, DeviceState *dev,
 void shpc_device_unplug_cb(HotplugHandler *hotplug_dev, DeviceState *dev,
                            Error **errp)
 {
-    object_unparent(OBJECT(dev));
+    qdev_unrealize(dev);
 }
 
 void shpc_device_unplug_request_cb(HotplugHandler *hotplug_dev,
@@ -565,7 +565,6 @@ void shpc_device_unplug_request_cb(HotplugHandler *hotplug_dev,
         return;
     }
 
-    shpc->config[SHPC_SLOT_EVENT_LATCH(slot)] |= SHPC_SLOT_EVENT_BUTTON;
     state = shpc_get_status(shpc, slot, SHPC_SLOT_STATE_MASK);
     led = shpc_get_status(shpc, slot, SHPC_SLOT_PWR_LED_MASK);
     if (state == SHPC_STATE_DISABLED && led == SHPC_LED_OFF) {
@@ -576,6 +575,8 @@ void shpc_device_unplug_request_cb(HotplugHandler *hotplug_dev,
         shpc->config[SHPC_SLOT_EVENT_LATCH(slot)] |=
             SHPC_SLOT_EVENT_MRL |
             SHPC_SLOT_EVENT_PRESENCE;
+    } else {
+        shpc->config[SHPC_SLOT_EVENT_LATCH(slot)] |= SHPC_SLOT_EVENT_BUTTON;
     }
     shpc_set_status(shpc, slot, 0, SHPC_SLOT_STATUS_66);
     shpc_interrupt_update(pci_hotplug_dev);
@@ -648,7 +649,7 @@ int shpc_init(PCIDevice *d, PCIBus *sec_bus, MemoryRegion *bar,
     shpc_cap_update_dword(d);
     memory_region_add_subregion(bar, offset, &shpc->mmio);
 
-    qbus_set_hotplug_handler(BUS(sec_bus), OBJECT(d), NULL);
+    qbus_set_hotplug_handler(BUS(sec_bus), OBJECT(d));
 
     d->cap_present |= QEMU_PCI_CAP_SHPC;
     return 0;
@@ -698,7 +699,7 @@ void shpc_cap_write_config(PCIDevice *d, uint32_t addr, uint32_t val, int l)
 }
 
 static int shpc_save(QEMUFile *f, void *pv, size_t size,
-                     const VMStateField *field, QJSON *vmdesc)
+                     const VMStateField *field, JSONWriter *vmdesc)
 {
     PCIDevice *d = container_of(pv, PCIDevice, shpc);
     qemu_put_buffer(f, d->shpc->config, SHPC_SIZEOF(d));

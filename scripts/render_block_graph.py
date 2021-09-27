@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # Render Qemu Block Graph
 #
@@ -23,7 +23,12 @@ import sys
 import subprocess
 import json
 from graphviz import Digraph
-from qemu import MonitorResponseError
+
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'python'))
+from qemu.qmp import (
+    QEMUMonitorProtocol,
+    QMPResponseError,
+)
 
 
 def perm(arr):
@@ -100,7 +105,7 @@ class LibvirtGuest():
         reply = json.loads(subprocess.check_output(ar))
 
         if 'error' in reply:
-            raise MonitorResponseError(reply)
+            raise QMPResponseError(reply)
 
         return reply['return']
 

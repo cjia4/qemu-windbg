@@ -30,24 +30,61 @@
 #include "exec/exec-all.h"
 #include "exec/gdbstub.h"
 #include "exec/helper-proto.h"
+#include "qemu/error-report.h"
+#include "qemu/qemu-print.h"
 #include "qemu/host-utils.h"
 
 static struct XtensaConfigList *xtensa_cores;
 
-static void xtensa_core_class_init(ObjectClass *oc, void *data)
+static void add_translator_to_hash(GHashTable *translator,
+                                   const char *name,
+                                   const XtensaOpcodeOps *opcode)
 {
-    CPUClass *cc = CPU_CLASS(oc);
-    XtensaCPUClass *xcc = XTENSA_CPU_CLASS(oc);
-    const XtensaConfig *config = data;
+    if (!g_hash_table_insert(translator, (void *)name, (void *)opcode)) {
+        error_report("Multiple definitions of '%s' opcode in a single table",
+                     name);
+    }
+}
 
-    xcc->config = config;
+static GHashTable *hash_opcode_translators(const XtensaOpcodeTranslators *t)
+{
+    unsigned i, j;
+    GHashTable *translator = g_hash_table_new(g_str_hash, g_str_equal);
 
-    /* Use num_core_regs to see only non-privileged registers in an unmodified
-     * gdb. Use num_regs to see all registers. gdb modification is required
-     * for that: reset bit 0 in the 'flags' field of the registers definitions
-     * in the gdb/xtensa-config.c inside gdb source tree or inside gdb overlay.
-     */
-    cc->gdb_num_core_regs = config->gdb_regmap.num_regs;
+    for (i = 0; i < t->num_opcodes; ++i) {
+        if (t->opcode[i].op_flags & XTENSA_OP_NAME_ARRAY) {
+            const char * const *name = t->opcode[i].name;
+
+            for (j = 0; name[j]; ++j) {
+                add_translator_to_hash(translator,
+                                       (void *)name[j],
+                                       (void *)(t->opcode + i));
+            }
+        } else {
+            add_translator_to_hash(translator,
+                                   (void *)t->opcode[i].name,
+                                   (void *)(t->opcode + i));
+        }
+    }
+    return translator;
+}
+
+static XtensaOpcodeOps *
+xtensa_find_opcode_ops(const XtensaOpcodeTranslators *t,
+                       const char *name)
+{
+    static GHashTable *translators;
+    GHashTable *translator;
+
+    if (translators == NULL) {
+        translators = g_hash_table_new(g_direct_hash, g_direct_equal);
+    }
+    translator = g_hash_table_lookup(translators, t);
+    if (translator == NULL) {
+        translator = hash_opcode_translators(t);
+        g_hash_table_insert(translators, (void *)t, translator);
+    }
+    return g_hash_table_lookup(translator, name);
 }
 
 static void init_libisa(XtensaConfig *config)
@@ -55,11 +92,14 @@ static void init_libisa(XtensaConfig *config)
     unsigned i, j;
     unsigned opcodes;
     unsigned formats;
+    unsigned regfiles;
 
     config->isa = xtensa_isa_init(config->isa_internal, NULL, NULL);
     assert(xtensa_isa_maxlength(config->isa) <= MAX_INSN_LENGTH);
+    assert(xtensa_insnbuf_size(config->isa) <= MAX_INSNBUF_LENGTH);
     opcodes = xtensa_isa_num_opcodes(config->isa);
     formats = xtensa_isa_num_formats(config->isa);
+    regfiles = xtensa_isa_num_regfiles(config->isa);
     config->opcode_ops = g_new(XtensaOpcodeOps *, opcodes);
 
     for (i = 0; i < formats; ++i) {
@@ -88,9 +128,26 @@ static void init_libisa(XtensaConfig *config)
 #endif
         config->opcode_ops[i] = ops;
     }
+    config->a_regfile = xtensa_regfile_lookup(config->isa, "AR");
+
+    config->regfile = g_new(void **, regfiles);
+    for (i = 0; i < regfiles; ++i) {
+        const char *name = xtensa_regfile_name(config->isa, i);
+        int entries = xtensa_regfile_num_entries(config->isa, i);
+        int bits = xtensa_regfile_num_bits(config->isa, i);
+
+        config->regfile[i] = xtensa_get_regfile_by_name(name, entries, bits);
+#ifdef DEBUG
+        if (config->regfile[i] == NULL) {
+            fprintf(stderr, "regfile '%s' not found for %s\n",
+                    name, config->name);
+        }
+#endif
+    }
+    xtensa_collect_sr_names(config);
 }
 
-void xtensa_finalize_config(XtensaConfig *config)
+static void xtensa_finalize_config(XtensaConfig *config)
 {
     if (config->isa_internal) {
         init_libisa(config);
@@ -109,6 +166,24 @@ void xtensa_finalize_config(XtensaConfig *config)
             config->gdb_regmap.num_core_regs = n_core_regs;
         }
     }
+}
+
+static void xtensa_core_class_init(ObjectClass *oc, void *data)
+{
+    CPUClass *cc = CPU_CLASS(oc);
+    XtensaCPUClass *xcc = XTENSA_CPU_CLASS(oc);
+    XtensaConfig *config = data;
+
+    xtensa_finalize_config(config);
+    xcc->config = config;
+
+    /*
+     * Use num_core_regs to see only non-privileged registers in an unmodified
+     * gdb. Use num_regs to see all registers. gdb modification is required
+     * for that: reset bit 0 in the 'flags' field of the registers definitions
+     * in the gdb/xtensa-config.c inside gdb source tree or inside gdb overlay.
+     */
+    cc->gdb_num_core_regs = config->gdb_regmap.num_regs;
 }
 
 void xtensa_register_core(XtensaConfigList *node)
@@ -158,33 +233,35 @@ void xtensa_breakpoint_handler(CPUState *cs)
     }
 }
 
-void xtensa_cpu_list(FILE *f, fprintf_function cpu_fprintf)
+void xtensa_cpu_list(void)
 {
     XtensaConfigList *core = xtensa_cores;
-    cpu_fprintf(f, "Available CPUs:\n");
+    qemu_printf("Available CPUs:\n");
     for (; core; core = core->next) {
-        cpu_fprintf(f, "  %s\n", core->config->name);
+        qemu_printf("  %s\n", core->config->name);
     }
 }
 
 #ifdef CONFIG_USER_ONLY
 
-int xtensa_cpu_handle_mmu_fault(CPUState *cs, vaddr address, int size, int rw,
-                                int mmu_idx)
+bool xtensa_cpu_tlb_fill(CPUState *cs, vaddr address, int size,
+                         MMUAccessType access_type, int mmu_idx,
+                         bool probe, uintptr_t retaddr)
 {
     XtensaCPU *cpu = XTENSA_CPU(cs);
     CPUXtensaState *env = &cpu->env;
 
     qemu_log_mask(CPU_LOG_INT,
                   "%s: rw = %d, address = 0x%08" VADDR_PRIx ", size = %d\n",
-                  __func__, rw, address, size);
+                  __func__, access_type, address, size);
     env->sregs[EXCVADDR] = address;
-    env->sregs[EXCCAUSE] = rw ? STORE_PROHIBITED_CAUSE : LOAD_PROHIBITED_CAUSE;
+    env->sregs[EXCCAUSE] = (access_type == MMU_DATA_STORE ?
+                            STORE_PROHIBITED_CAUSE : LOAD_PROHIBITED_CAUSE);
     cs->exception_index = EXC_USER;
-    return 1;
+    cpu_loop_exit_restore(cs, retaddr);
 }
 
-#else
+#else /* !CONFIG_USER_ONLY */
 
 void xtensa_cpu_do_unaligned_access(CPUState *cs,
                                     vaddr addr, MMUAccessType access_type,
@@ -193,37 +270,41 @@ void xtensa_cpu_do_unaligned_access(CPUState *cs,
     XtensaCPU *cpu = XTENSA_CPU(cs);
     CPUXtensaState *env = &cpu->env;
 
-    if (xtensa_option_enabled(env->config, XTENSA_OPTION_UNALIGNED_EXCEPTION) &&
-        !xtensa_option_enabled(env->config, XTENSA_OPTION_HW_ALIGNMENT)) {
-        cpu_restore_state(CPU(cpu), retaddr, true);
-        HELPER(exception_cause_vaddr)(env,
-                                      env->pc, LOAD_STORE_ALIGNMENT_CAUSE,
-                                      addr);
-    }
+    assert(xtensa_option_enabled(env->config,
+                                 XTENSA_OPTION_UNALIGNED_EXCEPTION));
+    cpu_restore_state(CPU(cpu), retaddr, true);
+    HELPER(exception_cause_vaddr)(env,
+                                  env->pc, LOAD_STORE_ALIGNMENT_CAUSE,
+                                  addr);
 }
 
-void tlb_fill(CPUState *cs, target_ulong vaddr, int size,
-              MMUAccessType access_type, int mmu_idx, uintptr_t retaddr)
+bool xtensa_cpu_tlb_fill(CPUState *cs, vaddr address, int size,
+                         MMUAccessType access_type, int mmu_idx,
+                         bool probe, uintptr_t retaddr)
 {
     XtensaCPU *cpu = XTENSA_CPU(cs);
     CPUXtensaState *env = &cpu->env;
     uint32_t paddr;
     uint32_t page_size;
     unsigned access;
-    int ret = xtensa_get_physical_addr(env, true, vaddr, access_type, mmu_idx,
-                                       &paddr, &page_size, &access);
+    int ret = xtensa_get_physical_addr(env, true, address, access_type,
+                                       mmu_idx, &paddr, &page_size, &access);
 
-    qemu_log_mask(CPU_LOG_MMU, "%s(%08x, %d, %d) -> %08x, ret = %d\n",
-                  __func__, vaddr, access_type, mmu_idx, paddr, ret);
+    qemu_log_mask(CPU_LOG_MMU, "%s(%08" VADDR_PRIx
+                  ", %d, %d) -> %08x, ret = %d\n",
+                  __func__, address, access_type, mmu_idx, paddr, ret);
 
     if (ret == 0) {
         tlb_set_page(cs,
-                     vaddr & TARGET_PAGE_MASK,
+                     address & TARGET_PAGE_MASK,
                      paddr & TARGET_PAGE_MASK,
                      access, mmu_idx, page_size);
+        return true;
+    } else if (probe) {
+        return false;
     } else {
         cpu_restore_state(cs, retaddr, true);
-        HELPER(exception_cause_vaddr)(env, env->pc, ret, vaddr);
+        HELPER(exception_cause_vaddr)(env, env->pc, ret, address);
     }
 }
 
@@ -245,7 +326,7 @@ void xtensa_cpu_do_transaction_failed(CPUState *cs, hwaddr physaddr, vaddr addr,
 
 void xtensa_runstall(CPUXtensaState *env, bool runstall)
 {
-    CPUState *cpu = CPU(xtensa_env_get_cpu(env));
+    CPUState *cpu = env_cpu(env);
 
     env->runstall = runstall;
     cpu->halted = runstall;
@@ -255,4 +336,4 @@ void xtensa_runstall(CPUXtensaState *env, bool runstall)
         qemu_cpu_kick(cpu);
     }
 }
-#endif
+#endif /* !CONFIG_USER_ONLY */

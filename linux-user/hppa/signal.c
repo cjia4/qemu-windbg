@@ -18,6 +18,7 @@
  */
 #include "qemu/osdep.h"
 #include "qemu.h"
+#include "user-internals.h"
 #include "signal-common.h"
 #include "linux-user/trace.h"
 
@@ -111,10 +112,11 @@ void setup_rt_frame(int sig, struct target_sigaction *ka,
     abi_ulong frame_addr, sp, haddr;
     struct target_rt_sigframe *frame;
     int i;
+    TaskState *ts = (TaskState *)thread_cpu->opaque;
 
     sp = get_sp_from_cpustate(env);
     if ((ka->sa_flags & TARGET_SA_ONSTACK) && !sas_ss_flags(sp)) {
-        sp = (target_sigaltstack_used.ss_sp + 0x7f) & ~0x3f;
+        sp = (ts->sigaltstack_used.ss_sp + 0x7f) & ~0x3f;
     }
     frame_addr = QEMU_ALIGN_UP(sp, 64);
     sp = frame_addr + PARISC_RT_SIGFRAME_SIZE32;
@@ -186,13 +188,7 @@ long do_rt_sigreturn(CPUArchState *env)
     set_sigmask(&set);
 
     restore_sigcontext(env, &frame->uc.tuc_mcontext);
-    unlock_user_struct(frame, frame_addr, 0);
-
-    if (do_sigaltstack(frame_addr + offsetof(struct target_rt_sigframe,
-                                             uc.tuc_stack),
-                       0, env->gr[30]) == -EFAULT) {
-        goto badframe;
-    }
+    target_restore_altstack(&frame->uc.tuc_stack, env);
 
     unlock_user_struct(frame, frame_addr, 0);
     return -TARGET_QEMU_ESIGRETURN;

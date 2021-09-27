@@ -16,14 +16,14 @@
 #include "qapi/error.h"
 #include "cpu.h"
 #include "sysemu/memory_mapping.h"
-#include "sysemu/reset.h"
 #include "migration/vmstate.h"
+#include "hw/acpi/tpm.h"
 #include "tpm_ppi.h"
 #include "trace.h"
 
 void tpm_ppi_reset(TPMPPI *tpmppi)
 {
-    if (tpmppi->buf[0x15a /* movv, docs/specs/tpm.txt */] & 0x1) {
+    if (tpmppi->buf[0x15a /* movv, docs/specs/tpm.rst */] & 0x1) {
         GuestPhysBlockList guest_phys_blocks;
         GuestPhysBlock *block;
 
@@ -44,7 +44,8 @@ void tpm_ppi_reset(TPMPPI *tpmppi)
 void tpm_ppi_init(TPMPPI *tpmppi, struct MemoryRegion *m,
                   hwaddr addr, Object *obj)
 {
-    tpmppi->buf = g_malloc0(HOST_PAGE_ALIGN(TPM_PPI_ADDR_SIZE));
+    tpmppi->buf = qemu_memalign(qemu_real_host_page_size,
+                                HOST_PAGE_ALIGN(TPM_PPI_ADDR_SIZE));
     memory_region_init_ram_device_ptr(&tpmppi->ram, obj, "tpm-ppi",
                                       TPM_PPI_ADDR_SIZE, tpmppi->buf);
     vmstate_register_ram(&tpmppi->ram, DEVICE(obj));

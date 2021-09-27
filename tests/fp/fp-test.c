@@ -116,30 +116,55 @@ static void usage_complete(int argc, char *argv[])
 }
 
 /* keep wrappers separate but do not bother defining headers for all of them */
-#include "wrap.inc.c"
+#include "wrap.c.inc"
 
 static void not_implemented(void)
 {
     fprintf(stderr, "Not implemented.\n");
 }
 
-static bool blacklisted(unsigned op, int rmode)
+static bool is_allowed(unsigned op, int rmode)
 {
-    /* odd has only been implemented for a few 128-bit ops */
+    /* odd has not been implemented for any 80-bit ops */
     if (rmode == softfloat_round_odd) {
         switch (op) {
-        case F128_ADD:
-        case F128_SUB:
-        case F128_MUL:
-        case F128_DIV:
-        case F128_TO_F64:
-        case F128_SQRT:
+        case EXTF80_TO_UI32:
+        case EXTF80_TO_UI64:
+        case EXTF80_TO_I32:
+        case EXTF80_TO_I64:
+        case EXTF80_TO_UI32_R_MINMAG:
+        case EXTF80_TO_UI64_R_MINMAG:
+        case EXTF80_TO_I32_R_MINMAG:
+        case EXTF80_TO_I64_R_MINMAG:
+        case EXTF80_TO_F16:
+        case EXTF80_TO_F32:
+        case EXTF80_TO_F64:
+        case EXTF80_TO_F128:
+        case EXTF80_ROUNDTOINT:
+        case EXTF80_ADD:
+        case EXTF80_SUB:
+        case EXTF80_MUL:
+        case EXTF80_DIV:
+        case EXTF80_REM:
+        case EXTF80_SQRT:
+        case EXTF80_EQ:
+        case EXTF80_LE:
+        case EXTF80_LT:
+        case EXTF80_EQ_SIGNALING:
+        case EXTF80_LE_QUIET:
+        case EXTF80_LT_QUIET:
+        case UI32_TO_EXTF80:
+        case UI64_TO_EXTF80:
+        case I32_TO_EXTF80:
+        case I64_TO_EXTF80:
+        case F16_TO_EXTF80:
+        case F32_TO_EXTF80:
+        case F64_TO_EXTF80:
+        case F128_TO_EXTF80:
             return false;
-        default:
-            return true;
         }
     }
-    return false;
+    return true;
 }
 
 static void do_testfloat(int op, int rmode, bool exact)
@@ -169,7 +194,7 @@ static void do_testfloat(int op, int rmode, bool exact)
     verCases_writeFunctionName(stderr);
     fputs("\n", stderr);
 
-    if (blacklisted(op, rmode)) {
+    if (!is_allowed(op, rmode)) {
         not_implemented();
         return;
     }
@@ -622,7 +647,8 @@ static void do_testfloat(int op, int rmode, bool exact)
         test_ab_extF80_z_bool(true_ab_extF80M_z_bool, subj_ab_extF80M_z_bool);
         break;
     case F128_TO_UI32:
-        not_implemented();
+        test_a_f128_z_ui32_rx(slow_f128M_to_ui32, qemu_f128M_to_ui32, rmode,
+                              exact);
         break;
     case F128_TO_UI64:
         test_a_f128_z_ui64_rx(slow_f128M_to_ui64, qemu_f128M_to_ui64, rmode,
@@ -691,7 +717,7 @@ static void do_testfloat(int op, int rmode, bool exact)
         test_abz_f128(true_abz_f128M, subj_abz_f128M);
         break;
     case F128_MULADD:
-        not_implemented();
+        test_abcz_f128(slow_f128M_mulAdd, qemu_f128M_mulAdd);
         break;
     case F128_SQRT:
         test_az_f128(slow_f128M_sqrt, qemu_f128M_sqrt);
@@ -937,18 +963,21 @@ static void QEMU_NORETURN run_test(void)
             verCases_usesExact = !!(attrs & FUNC_ARG_EXACT);
 
             for (k = 0; k < 3; k++) {
-                int prec80 = 32;
+                FloatX80RoundPrec qsf_prec80 = floatx80_precision_x;
+                int prec80 = 80;
                 int l;
 
                 if (k == 1) {
                     prec80 = 64;
+                    qsf_prec80 = floatx80_precision_d;
                 } else if (k == 2) {
-                    prec80 = 80;
+                    prec80 = 32;
+                    qsf_prec80 = floatx80_precision_s;
                 }
 
                 verCases_roundingPrecision = 0;
                 slow_extF80_roundingPrecision = prec80;
-                qsf.floatx80_rounding_precision = prec80;
+                qsf.floatx80_rounding_precision = qsf_prec80;
 
                 if (attrs & FUNC_EFF_ROUNDINGPRECISION) {
                     verCases_roundingPrecision = prec80;
@@ -963,7 +992,7 @@ static void QEMU_NORETURN run_test(void)
 
                     verCases_tininessCode = 0;
                     slowfloat_detectTininess = tmode;
-                    qsf.float_detect_tininess = sf_tininess_to_qemu(tmode);
+                    qsf.tininess_before_rounding = sf_tininess_to_qemu(tmode);
 
                     if (attrs & FUNC_EFF_TININESSMODE ||
                         ((attrs & FUNC_EFF_TININESSMODE_REDUCEDPREC) &&

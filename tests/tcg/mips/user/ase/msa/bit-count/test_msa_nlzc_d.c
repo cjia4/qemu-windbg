@@ -1,8 +1,8 @@
 /*
  *  Test program for MSA instruction NLZC.D
  *
- *  Copyright (C) 2018  Wave Computing, Inc.
- *  Copyright (C) 2018  Aleksandar Markovic <amarkovic@wavecomp.com>
+ *  Copyright (C) 2019  Wave Computing, Inc.
+ *  Copyright (C) 2019  Aleksandar Markovic <amarkovic@wavecomp.com>
  *
  *  This program is free software: you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -23,15 +23,17 @@
 #include <stdint.h>
 
 #include "../../../../include/wrappers_msa.h"
-#include "../../../../include/test_inputs.h"
-#include "../../../../include/test_utils.h"
+#include "../../../../include/test_inputs_128.h"
+#include "../../../../include/test_utils_128.h"
 
 #define TEST_COUNT_TOTAL (PATTERN_INPUTS_COUNT + RANDOM_INPUTS_COUNT)
 
 
 int32_t main(void)
 {
-    char *instruction_name = "NLZC.D";
+    char *isa_ase_name = "MSA";
+    char *group_name = "Bit Count";
+    char *instruction_name =  "NLZC.D";
     int32_t ret;
     uint32_t i;
     struct timeval start, end;
@@ -121,6 +123,8 @@ int32_t main(void)
         { 0x0000000000000000ULL, 0x0000000000000000ULL, },
     };
 
+    reset_msa_registers();
+
     gettimeofday(&start, NULL);
 
     for (i = 0; i < TEST_COUNT_TOTAL; i++) {
@@ -137,8 +141,9 @@ int32_t main(void)
     elapsed_time = (end.tv_sec - start.tv_sec) * 1000.0;
     elapsed_time += (end.tv_usec - start.tv_usec) / 1000.0;
 
-    ret = check_results(instruction_name, TEST_COUNT_TOTAL, elapsed_time,
-                        &b128_result[0][0], &b128_expect[0][0]);
+    ret = check_results_128(isa_ase_name, group_name, instruction_name,
+                            TEST_COUNT_TOTAL, elapsed_time,
+                            &b128_result[0][0], &b128_expect[0][0]);
 
     return ret;
 }

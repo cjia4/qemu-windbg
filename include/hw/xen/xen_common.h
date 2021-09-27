@@ -12,12 +12,10 @@
 
 #include <xenctrl.h>
 #include <xenstore.h>
-#include <xen/io/xenbus.h>
+#include "hw/xen/interface/io/xenbus.h"
 
-#include "hw/hw.h"
 #include "hw/xen/xen.h"
 #include "hw/pci/pci.h"
-#include "qemu/queue.h"
 #include "hw/xen/trace.h"
 
 extern xc_interface *xen_xc;
@@ -134,6 +132,12 @@ static inline xenforeignmemory_resource_handle *xenforeignmemory_map_resource(
 {
     errno = EOPNOTSUPP;
     return NULL;
+}
+
+static inline int xenforeignmemory_unmap_resource(
+    xenforeignmemory_handle *fmem, xenforeignmemory_resource_handle *fres)
+{
+    return 0;
 }
 
 #endif /* CONFIG_XEN_CTRL_INTERFACE_VERSION < 41100 */

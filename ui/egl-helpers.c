@@ -102,12 +102,12 @@ void egl_fb_blit(egl_fb *dst, egl_fb *src, bool flip)
                       GL_COLOR_BUFFER_BIT, GL_LINEAR);
 }
 
-void egl_fb_read(void *dst, egl_fb *src)
+void egl_fb_read(DisplaySurface *dst, egl_fb *src)
 {
     glBindFramebuffer(GL_READ_FRAMEBUFFER, src->framebuffer);
     glReadBuffer(GL_COLOR_ATTACHMENT0_EXT);
-    glReadPixels(0, 0, src->width, src->height,
-                 GL_BGRA, GL_UNSIGNED_BYTE, dst);
+    glReadPixels(0, 0, surface_width(dst), surface_height(dst),
+                 GL_BGRA, GL_UNSIGNED_BYTE, surface_data(dst));
 }
 
 void egl_texture_blit(QemuGLShader *gls, egl_fb *dst, egl_fb *src, bool flip)
@@ -140,7 +140,7 @@ void egl_texture_blend(QemuGLShader *gls, egl_fb *dst, egl_fb *src, bool flip,
 
 /* ---------------------------------------------------------------------- */
 
-#ifdef CONFIG_OPENGL_DMABUF
+#ifdef CONFIG_GBM
 
 int qemu_egl_rn_fd;
 struct gbm_device *qemu_egl_rn_gbm_dev;
@@ -200,7 +200,8 @@ err:
     return -1;
 }
 
-int egl_get_fd_for_texture(uint32_t tex_id, EGLint *stride, EGLint *fourcc)
+int egl_get_fd_for_texture(uint32_t tex_id, EGLint *stride, EGLint *fourcc,
+                           EGLuint64KHR *modifier)
 {
     EGLImageKHR image;
     EGLint num_planes, fd;
@@ -214,7 +215,7 @@ int egl_get_fd_for_texture(uint32_t tex_id, EGLint *stride, EGLint *fourcc)
     }
 
     eglExportDMABUFImageQueryMESA(qemu_egl_display, image, fourcc,
-                                  &num_planes, NULL);
+                                  &num_planes, modifier);
     if (num_planes != 1) {
         eglDestroyImageKHR(qemu_egl_display, image);
         return -1;
@@ -228,19 +229,35 @@ int egl_get_fd_for_texture(uint32_t tex_id, EGLint *stride, EGLint *fourcc)
 void egl_dmabuf_import_texture(QemuDmaBuf *dmabuf)
 {
     EGLImageKHR image = EGL_NO_IMAGE_KHR;
-    EGLint attrs[] = {
-        EGL_DMA_BUF_PLANE0_FD_EXT,      dmabuf->fd,
-        EGL_DMA_BUF_PLANE0_PITCH_EXT,   dmabuf->stride,
-        EGL_DMA_BUF_PLANE0_OFFSET_EXT,  0,
-        EGL_WIDTH,                      dmabuf->width,
-        EGL_HEIGHT,                     dmabuf->height,
-        EGL_LINUX_DRM_FOURCC_EXT,       dmabuf->fourcc,
-        EGL_NONE, /* end of list */
-    };
+    EGLint attrs[64];
+    int i = 0;
 
     if (dmabuf->texture != 0) {
         return;
     }
+
+    attrs[i++] = EGL_WIDTH;
+    attrs[i++] = dmabuf->width;
+    attrs[i++] = EGL_HEIGHT;
+    attrs[i++] = dmabuf->height;
+    attrs[i++] = EGL_LINUX_DRM_FOURCC_EXT;
+    attrs[i++] = dmabuf->fourcc;
+
+    attrs[i++] = EGL_DMA_BUF_PLANE0_FD_EXT;
+    attrs[i++] = dmabuf->fd;
+    attrs[i++] = EGL_DMA_BUF_PLANE0_PITCH_EXT;
+    attrs[i++] = dmabuf->stride;
+    attrs[i++] = EGL_DMA_BUF_PLANE0_OFFSET_EXT;
+    attrs[i++] = 0;
+#ifdef EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT
+    if (dmabuf->modifier) {
+        attrs[i++] = EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT;
+        attrs[i++] = (dmabuf->modifier >>  0) & 0xffffffff;
+        attrs[i++] = EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT;
+        attrs[i++] = (dmabuf->modifier >> 32) & 0xffffffff;
+    }
+#endif
+    attrs[i++] = EGL_NONE;
 
     image = eglCreateImageKHR(qemu_egl_display,
                               EGL_NO_CONTEXT,
@@ -270,7 +287,33 @@ void egl_dmabuf_release_texture(QemuDmaBuf *dmabuf)
     dmabuf->texture = 0;
 }
 
-#endif /* CONFIG_OPENGL_DMABUF */
+void egl_dmabuf_create_sync(QemuDmaBuf *dmabuf)
+{
+    EGLSyncKHR sync;
+
+    if (epoxy_has_egl_extension(qemu_egl_display,
+                                "EGL_KHR_fence_sync") &&
+        epoxy_has_egl_extension(qemu_egl_display,
+                                "EGL_ANDROID_native_fence_sync")) {
+        sync = eglCreateSyncKHR(qemu_egl_display,
+                                EGL_SYNC_NATIVE_FENCE_ANDROID, NULL);
+        if (sync != EGL_NO_SYNC_KHR) {
+            dmabuf->sync = sync;
+        }
+    }
+}
+
+void egl_dmabuf_create_fence(QemuDmaBuf *dmabuf)
+{
+    if (dmabuf->sync) {
+        dmabuf->fence_fd = eglDupNativeFenceFDANDROID(qemu_egl_display,
+                                                      dmabuf->sync);
+        eglDestroySyncKHR(qemu_egl_display, dmabuf->sync);
+        dmabuf->sync = NULL;
+    }
+}
+
+#endif /* CONFIG_GBM */
 
 /* ---------------------------------------------------------------------- */
 
@@ -297,6 +340,8 @@ EGLSurface qemu_egl_init_surface_x11(EGLContext ectx, EGLNativeWindowType win)
 }
 
 /* ---------------------------------------------------------------------- */
+
+#if defined(CONFIG_X11) || defined(CONFIG_GBM)
 
 /*
  * Taken from glamor_egl.h from the Xorg xserver, which is MIT licensed
@@ -422,6 +467,18 @@ int qemu_egl_init_dpy_mesa(EGLNativeDisplayType dpy, DisplayGLMode mode)
 #else
     return qemu_egl_init_dpy(dpy, 0, mode);
 #endif
+}
+
+#endif
+
+bool qemu_egl_has_dmabuf(void)
+{
+    if (qemu_egl_display == EGL_NO_DISPLAY) {
+        return false;
+    }
+
+    return epoxy_has_egl_extension(qemu_egl_display,
+                                   "EGL_EXT_image_dma_buf_import");
 }
 
 EGLContext qemu_egl_init_ctx(void)

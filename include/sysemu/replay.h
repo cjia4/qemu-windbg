@@ -12,9 +12,11 @@
  *
  */
 
-#include "sysemu.h"
+#include "qapi/qapi-types-misc.h"
+#include "qapi/qapi-types-run-state.h"
 #include "qapi/qapi-types-replay.h"
 #include "qapi/qapi-types-ui.h"
+#include "block/aio.h"
 
 /* replay clock kinds */
 enum ReplayClockKind {
@@ -92,6 +94,8 @@ bool replay_reverse_continue(void);
 bool replay_running_debug(void);
 /* Called in reverse debugging mode to collect breakpoint information */
 void replay_breakpoint(void);
+/* Called when gdb is attached to gdbstub */
+void replay_gdb_attached(void);
 
 /* Processing the instructions */
 
@@ -124,18 +128,27 @@ bool replay_has_interrupt(void);
 int64_t replay_save_clock(ReplayClockKind kind, int64_t clock,
                           int64_t raw_icount);
 /*! Read the specified clock from the log or return cached data */
-int64_t replay_read_clock(ReplayClockKind kind);
+int64_t replay_read_clock(ReplayClockKind kind, int64_t raw_icount);
 /*! Saves or reads the clock depending on the current replay mode. */
 #define REPLAY_CLOCK(clock, value)                                      \
-    (replay_mode == REPLAY_MODE_PLAY ? replay_read_clock((clock))       \
+    (replay_mode == REPLAY_MODE_PLAY                                    \
+        ? replay_read_clock((clock), icount_get_raw())                  \
         : replay_mode == REPLAY_MODE_RECORD                             \
-            ? replay_save_clock((clock), (value), cpu_get_icount_raw()) \
-        : (value))
+            ? replay_save_clock((clock), (value), icount_get_raw())     \
+            : (value))
 #define REPLAY_CLOCK_LOCKED(clock, value)                               \
-    (replay_mode == REPLAY_MODE_PLAY ? replay_read_clock((clock))       \
+    (replay_mode == REPLAY_MODE_PLAY                                    \
+        ? replay_read_clock((clock), icount_get_raw_locked())           \
         : replay_mode == REPLAY_MODE_RECORD                             \
-            ? replay_save_clock((clock), (value), cpu_get_icount_raw_locked()) \
-        : (value))
+            ? replay_save_clock((clock), (value), icount_get_raw_locked()) \
+            : (value))
+
+/* Processing data from random generators */
+
+/* Saves the values from the random number generator */
+void replay_save_random(int ret, void *buf, size_t len);
+/* Loads the saved values for the random number generator */
+int replay_read_random(void *buf, size_t len);
 
 /* Events */
 
@@ -205,9 +218,9 @@ void replay_net_packet_event(ReplayNetState *rns, unsigned flags,
 /* Audio */
 
 /*! Saves/restores number of played samples of audio out operation. */
-void replay_audio_out(int *played);
+void replay_audio_out(size_t *played);
 /*! Saves/restores recorded samples of audio in operation. */
-void replay_audio_in(int *recorded, void *samples, int *wpos, int size);
+void replay_audio_in(size_t *recorded, void *samples, size_t *wpos, size_t size);
 
 /* VM state operations */
 

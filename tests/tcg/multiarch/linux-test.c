@@ -251,7 +251,7 @@ static void test_time(void)
 static int server_socket(void)
 {
     int val, fd;
-    struct sockaddr_in sockaddr;
+    struct sockaddr_in sockaddr = {};
 
     /* server socket */
     fd = chk_error(socket(PF_INET, SOCK_STREAM, 0));
@@ -271,7 +271,7 @@ static int server_socket(void)
 static int client_socket(uint16_t port)
 {
     int fd;
-    struct sockaddr_in sockaddr;
+    struct sockaddr_in sockaddr = {};
 
     /* server socket */
     fd = chk_error(socket(PF_INET, SOCK_STREAM, 0));
@@ -296,7 +296,7 @@ static void test_socket(void)
     server_fd = server_socket();
     /* find out what port we got */
     socklen = sizeof(server_addr);
-    ret = getsockname(server_fd, &server_addr, &socklen);
+    ret = getsockname(server_fd, (struct sockaddr *)&server_addr, &socklen);
     chk_error(ret);
     server_port = ntohs(server_addr.sin_port);
 
@@ -485,13 +485,26 @@ static void test_signal(void)
     act.sa_flags = SA_SIGINFO;
     chk_error(sigaction(SIGSEGV, &act, NULL));
     if (setjmp(jmp_env) == 0) {
-        *(uint8_t *)0 = 0;
+        /*
+         * clang requires volatile or it will turn this into a
+         * call to abort() instead of forcing a SIGSEGV.
+         */
+        *(volatile uint8_t *)0 = 0;
     }
 
     act.sa_handler = SIG_DFL;
     sigemptyset(&act.sa_mask);
     act.sa_flags = 0;
     chk_error(sigaction(SIGSEGV, &act, NULL));
+
+    if (sigaction(SIGKILL, &act, NULL) == 0) {
+        error("sigaction(SIGKILL, &act, NULL) must not succeed");
+    }
+    if (sigaction(SIGSTOP, &act, NULL) == 0) {
+        error("sigaction(SIGSTOP, &act, NULL) must not succeed");
+    }
+    chk_error(sigaction(SIGKILL, NULL, &act));
+    chk_error(sigaction(SIGSTOP, NULL, &act));
 }
 
 #define SHM_SIZE 32768
@@ -503,8 +516,9 @@ static void test_shm(void)
 
     shmid = chk_error(shmget(IPC_PRIVATE, SHM_SIZE, IPC_CREAT | 0777));
     ptr = shmat(shmid, NULL, 0);
-    if (!ptr)
+    if (ptr == (void *)-1) {
         error("shmat");
+    }
 
     memset(ptr, 0, SHM_SIZE);
 

@@ -21,8 +21,8 @@
 
 #include "qemu/osdep.h"
 #include "qapi/error.h"
+#include "qemu/qemu-print.h"
 #include "cpu.h"
-#include "qemu-common.h"
 #include "exec/exec-all.h"
 
 
@@ -74,23 +74,17 @@ static void alpha_cpu_realizefn(DeviceState *dev, Error **errp)
 static void alpha_cpu_list_entry(gpointer data, gpointer user_data)
 {
     ObjectClass *oc = data;
-    CPUListState *s = user_data;
 
-    (*s->cpu_fprintf)(s->file, "  %s\n",
-                      object_class_get_name(oc));
+    qemu_printf("  %s\n", object_class_get_name(oc));
 }
 
-void alpha_cpu_list(FILE *f, fprintf_function cpu_fprintf)
+void alpha_cpu_list(void)
 {
-    CPUListState s = {
-        .file = f,
-        .cpu_fprintf = cpu_fprintf,
-    };
     GSList *list;
 
     list = object_class_get_list_sorted(TYPE_ALPHA_CPU, false);
-    (*cpu_fprintf)(f, "Available CPUs:\n");
-    g_slist_foreach(list, alpha_cpu_list_entry, &s);
+    qemu_printf("Available CPUs:\n");
+    g_slist_foreach(list, alpha_cpu_list_entry, NULL);
     g_slist_free(list);
 }
 
@@ -196,11 +190,10 @@ static void ev67_cpu_initfn(Object *obj)
 
 static void alpha_cpu_initfn(Object *obj)
 {
-    CPUState *cs = CPU(obj);
     AlphaCPU *cpu = ALPHA_CPU(obj);
     CPUAlphaState *env = &cpu->env;
 
-    cs->env_ptr = env;
+    cpu_set_cpustate_pointers(cpu);
 
     env->lock_addr = -1;
 #if defined(CONFIG_USER_ONLY)
@@ -213,6 +206,28 @@ static void alpha_cpu_initfn(Object *obj)
 #endif
 }
 
+#ifndef CONFIG_USER_ONLY
+#include "hw/core/sysemu-cpu-ops.h"
+
+static const struct SysemuCPUOps alpha_sysemu_ops = {
+    .get_phys_page_debug = alpha_cpu_get_phys_page_debug,
+};
+#endif
+
+#include "hw/core/tcg-cpu-ops.h"
+
+static const struct TCGCPUOps alpha_tcg_ops = {
+    .initialize = alpha_translate_init,
+    .tlb_fill = alpha_cpu_tlb_fill,
+
+#ifndef CONFIG_USER_ONLY
+    .cpu_exec_interrupt = alpha_cpu_exec_interrupt,
+    .do_interrupt = alpha_cpu_do_interrupt,
+    .do_transaction_failed = alpha_cpu_do_transaction_failed,
+    .do_unaligned_access = alpha_cpu_do_unaligned_access,
+#endif /* !CONFIG_USER_ONLY */
+};
+
 static void alpha_cpu_class_init(ObjectClass *oc, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(oc);
@@ -224,23 +239,17 @@ static void alpha_cpu_class_init(ObjectClass *oc, void *data)
 
     cc->class_by_name = alpha_cpu_class_by_name;
     cc->has_work = alpha_cpu_has_work;
-    cc->do_interrupt = alpha_cpu_do_interrupt;
-    cc->cpu_exec_interrupt = alpha_cpu_exec_interrupt;
     cc->dump_state = alpha_cpu_dump_state;
     cc->set_pc = alpha_cpu_set_pc;
     cc->gdb_read_register = alpha_cpu_gdb_read_register;
     cc->gdb_write_register = alpha_cpu_gdb_write_register;
-#ifdef CONFIG_USER_ONLY
-    cc->handle_mmu_fault = alpha_cpu_handle_mmu_fault;
-#else
-    cc->do_transaction_failed = alpha_cpu_do_transaction_failed;
-    cc->do_unaligned_access = alpha_cpu_do_unaligned_access;
-    cc->get_phys_page_debug = alpha_cpu_get_phys_page_debug;
+#ifndef CONFIG_USER_ONLY
     dc->vmsd = &vmstate_alpha_cpu;
+    cc->sysemu_ops = &alpha_sysemu_ops;
 #endif
     cc->disas_set_info = alpha_cpu_disas_set_info;
-    cc->tcg_initialize = alpha_translate_init;
 
+    cc->tcg_ops = &alpha_tcg_ops;
     cc->gdb_num_core_regs = 67;
 }
 

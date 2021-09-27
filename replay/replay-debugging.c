@@ -1,7 +1,7 @@
 /*
  * replay-debugging.c
  *
- * Copyright (c) 2010-2018 Institute for System Programming
+ * Copyright (c) 2010-2020 Institute for System Programming
  *                         of the Russian Academy of Sciences.
  *
  * This work is licensed under the terms of the GNU GPL, version 2 or later.
@@ -12,8 +12,9 @@
 #include "qemu/osdep.h"
 #include "qapi/error.h"
 #include "sysemu/replay.h"
+#include "sysemu/runstate.h"
 #include "replay-internal.h"
-#include "hmp.h"
+#include "monitor/hmp.h"
 #include "monitor/monitor.h"
 #include "qapi/qapi-commands-replay.h"
 #include "qapi/qmp/qdict.h"
@@ -66,10 +67,9 @@ static void replay_break(uint64_t icount, QEMUTimerCB callback, void *opaque)
 
     if (replay_break_timer) {
         timer_del(replay_break_timer);
-    } else {
-        replay_break_timer = timer_new_ns(QEMU_CLOCK_REALTIME,
-                                          callback, opaque);
     }
+    replay_break_timer = timer_new_ns(QEMU_CLOCK_REALTIME,
+                                      callback, opaque);
 }
 
 static void replay_delete_break(void)
@@ -78,7 +78,6 @@ static void replay_delete_break(void)
     assert(replay_mutex_locked());
 
     if (replay_break_timer) {
-        timer_del(replay_break_timer);
         timer_free(replay_break_timer);
         replay_break_timer = NULL;
     }
@@ -113,7 +112,6 @@ void hmp_replay_break(Monitor *mon, const QDict *qdict)
     qmp_replay_break(icount, &err);
     if (err) {
         error_report_err(err);
-        error_free(err);
         return;
     }
 }
@@ -134,7 +132,6 @@ void hmp_replay_delete_break(Monitor *mon, const QDict *qdict)
     qmp_replay_delete_break(&err);
     if (err) {
         error_report_err(err);
-        error_free(err);
         return;
     }
 }
@@ -146,12 +143,13 @@ static char *replay_find_nearest_snapshot(int64_t icount,
     QEMUSnapshotInfo *sn_tab;
     QEMUSnapshotInfo *nearest = NULL;
     char *ret = NULL;
+    int rv;
     int nb_sns, i;
     AioContext *aio_context;
 
     *snapshot_icount = -1;
 
-    bs = bdrv_all_find_vmstate_bs();
+    bs = bdrv_all_find_vmstate_bs(NULL, false, NULL, NULL);
     if (!bs) {
         goto fail;
     }
@@ -162,7 +160,10 @@ static char *replay_find_nearest_snapshot(int64_t icount,
     aio_context_release(aio_context);
 
     for (i = 0; i < nb_sns; i++) {
-        if (bdrv_all_find_snapshot(sn_tab[i].name, &bs) == 0) {
+        rv = bdrv_all_has_snapshot(sn_tab[i].name, false, NULL, NULL);
+        if (rv < 0)
+            goto fail;
+        if (rv == 1) {
             if (sn_tab[i].icount != -1ULL
                 && sn_tab[i].icount <= icount
                 && (!nearest || nearest->icount < sn_tab[i].icount)) {
@@ -189,17 +190,13 @@ static void replay_seek(int64_t icount, QEMUTimerCB callback, Error **errp)
         error_setg(errp, "replay must be enabled to seek");
         return;
     }
-    if (!replay_snapshot) {
-        error_setg(errp, "snapshotting is disabled");
-        return;
-    }
 
     snapshot = replay_find_nearest_snapshot(icount, &snapshot_icount);
     if (snapshot) {
         if (icount < replay_get_current_icount()
             || replay_get_current_icount() < snapshot_icount) {
             vm_stop(RUN_STATE_RESTORE_VM);
-            load_snapshot(snapshot, errp);
+            load_snapshot(snapshot, NULL, false, NULL, errp);
         }
         g_free(snapshot);
     }
@@ -224,7 +221,6 @@ void hmp_replay_seek(Monitor *mon, const QDict *qdict)
     qmp_replay_seek(icount, &err);
     if (err) {
         error_report_err(err);
-        error_free(err);
         return;
     }
 }
@@ -285,7 +281,6 @@ static void replay_continue_stop(void *opaque)
             replay_continue_end();
         }
         replay_last_snapshot = replay_get_current_icount();
-        return;
     } else {
         /* Seek to the very first step */
         replay_seek(0, replay_stop_vm_debug, &err);
@@ -293,9 +288,7 @@ static void replay_continue_stop(void *opaque)
             error_free(err);
             replay_continue_end();
         }
-        return;
     }
-    replay_continue_end();
 }
 
 bool replay_reverse_continue(void)
@@ -324,4 +317,18 @@ void replay_breakpoint(void)
 {
     assert(replay_mode == REPLAY_MODE_PLAY);
     replay_last_breakpoint = replay_get_current_icount();
+}
+
+void replay_gdb_attached(void)
+{
+    /*
+     * Create VM snapshot on temporary overlay to allow reverse
+     * debugging even if snapshots were not enabled.
+     */
+    if (replay_mode == REPLAY_MODE_PLAY
+        && !replay_snapshot) {
+        if (!save_snapshot("start_debugging", true, NULL, false, NULL, NULL)) {
+            /* Can't create the snapshot. Continue conventional debugging. */
+        }
+    }
 }

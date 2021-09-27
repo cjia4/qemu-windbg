@@ -1,10 +1,10 @@
 /*
- *  PowerPC interal definitions for qemu.
+ *  PowerPC internal definitions for qemu.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -157,6 +157,9 @@ EXTRACT_HELPER(FPL, 25, 1);
 EXTRACT_HELPER(FPFLM, 17, 8);
 EXTRACT_HELPER(FPW, 16, 1);
 
+/* mffscrni */
+EXTRACT_HELPER(RM, 11, 2);
+
 /* addpcis */
 EXTRACT_HELPER_SPLIT_3(DX, 10, 6, 6, 5, 16, 1, 1, 0, 0)
 #if defined(TARGET_PPC64)
@@ -204,37 +207,6 @@ EXTRACT_HELPER(IMM8, 11, 8);
 EXTRACT_HELPER(DCMX, 16, 7);
 EXTRACT_HELPER_SPLIT_3(DCMX_XV, 5, 16, 0, 1, 2, 5, 1, 6, 6);
 
-#if defined(HOST_WORDS_BIGENDIAN)
-#define VsrB(i) u8[i]
-#define VsrSB(i) s8[i]
-#define VsrH(i) u16[i]
-#define VsrSH(i) s16[i]
-#define VsrW(i) u32[i]
-#define VsrSW(i) s32[i]
-#define VsrD(i) u64[i]
-#define VsrSD(i) s64[i]
-#else
-#define VsrB(i) u8[15 - (i)]
-#define VsrSB(i) s8[15 - (i)]
-#define VsrH(i) u16[7 - (i)]
-#define VsrSH(i) s16[7 - (i)]
-#define VsrW(i) u32[3 - (i)]
-#define VsrSW(i) s32[3 - (i)]
-#define VsrD(i) u64[1 - (i)]
-#define VsrSD(i) s64[1 - (i)]
-#endif
-static inline void getVSR(int n, ppc_vsr_t *vsr, CPUPPCState *env)
-{
-    vsr->VsrD(0) = env->vsr[n].u64[0];
-    vsr->VsrD(1) = env->vsr[n].u64[1];
-}
-
-static inline void putVSR(int n, ppc_vsr_t *vsr, CPUPPCState *env)
-{
-    env->vsr[n].u64[0] = vsr->VsrD(0);
-    env->vsr[n].u64[1] = vsr->VsrD(1);
-}
-
 void helper_compute_fprf_float16(CPUPPCState *env, float16 arg);
 void helper_compute_fprf_float32(CPUPPCState *env, float32 arg);
 void helper_compute_fprf_float128(CPUPPCState *env, float128 arg);
@@ -243,4 +215,73 @@ void helper_compute_fprf_float128(CPUPPCState *env, float128 arg);
 void ppc_cpu_do_unaligned_access(CPUState *cs, vaddr addr,
                                  MMUAccessType access_type,
                                  int mmu_idx, uintptr_t retaddr);
+
+/* translate.c */
+
+int ppc_fixup_cpu(PowerPCCPU *cpu);
+void create_ppc_opcodes(PowerPCCPU *cpu, Error **errp);
+void destroy_ppc_opcodes(PowerPCCPU *cpu);
+
+/* gdbstub.c */
+void ppc_gdb_init(CPUState *cs, PowerPCCPUClass *ppc);
+gchar *ppc_gdb_arch_name(CPUState *cs);
+
+/**
+ * prot_for_access_type:
+ * @access_type: Access type
+ *
+ * Return the protection bit required for the given access type.
+ */
+static inline int prot_for_access_type(MMUAccessType access_type)
+{
+    switch (access_type) {
+    case MMU_INST_FETCH:
+        return PAGE_EXEC;
+    case MMU_DATA_LOAD:
+        return PAGE_READ;
+    case MMU_DATA_STORE:
+        return PAGE_WRITE;
+    }
+    g_assert_not_reached();
+}
+
+/* PowerPC MMU emulation */
+
+typedef struct mmu_ctx_t mmu_ctx_t;
+bool ppc_xlate(PowerPCCPU *cpu, vaddr eaddr, MMUAccessType access_type,
+                      hwaddr *raddrp, int *psizep, int *protp,
+                      int mmu_idx, bool guest_visible);
+int get_physical_address_wtlb(CPUPPCState *env, mmu_ctx_t *ctx,
+                                     target_ulong eaddr,
+                                     MMUAccessType access_type, int type,
+                                     int mmu_idx);
+/* Software driven TLB helpers */
+int ppc6xx_tlb_getnum(CPUPPCState *env, target_ulong eaddr,
+                                    int way, int is_code);
+/* Context used internally during MMU translations */
+struct mmu_ctx_t {
+    hwaddr raddr;      /* Real address              */
+    hwaddr eaddr;      /* Effective address         */
+    int prot;                      /* Protection bits           */
+    hwaddr hash[2];    /* Pagetable hash values     */
+    target_ulong ptem;             /* Virtual segment ID | API  */
+    int key;                       /* Access key                */
+    int nx;                        /* Non-execute area          */
+};
+
+/* Common routines used by software and hardware TLBs emulation */
+static inline int pte_is_valid(target_ulong pte0)
+{
+    return pte0 & 0x80000000 ? 1 : 0;
+}
+
+static inline void pte_invalidate(target_ulong *pte0)
+{
+    *pte0 &= ~0x80000000;
+}
+
+#define PTE_PTEM_MASK 0x7FFFFFBF
+#define PTE_CHECK_MASK (TARGET_PAGE_MASK | 0x7B)
+
+
 #endif /* PPC_INTERNAL_H */

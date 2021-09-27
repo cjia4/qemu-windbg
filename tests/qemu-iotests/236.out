@@ -22,18 +22,20 @@ write -P0xcd 0x3ff0000 64k
   "bitmaps": {
     "drive0": [
       {
+        "busy": false,
         "count": 262144,
         "granularity": 65536,
         "name": "bitmapB",
         "persistent": false,
-        "status": "active"
+        "recording": true
       },
       {
+        "busy": false,
         "count": 262144,
         "granularity": 65536,
         "name": "bitmapA",
         "persistent": false,
-        "status": "active"
+        "recording": true
       }
     ]
   }
@@ -84,18 +86,20 @@ write -P0xcd 0x3ff0000 64k
   "bitmaps": {
     "drive0": [
       {
+        "busy": false,
         "count": 262144,
         "granularity": 65536,
         "name": "bitmapB",
         "persistent": false,
-        "status": "active"
+        "recording": true
       },
       {
+        "busy": false,
         "count": 262144,
         "granularity": 65536,
         "name": "bitmapA",
         "persistent": false,
-        "status": "active"
+        "recording": true
       }
     ]
   }
@@ -184,25 +188,28 @@ write -P0xea 0x3fe0000 64k
   "bitmaps": {
     "drive0": [
       {
+        "busy": false,
         "count": 393216,
         "granularity": 65536,
         "name": "bitmapC",
         "persistent": false,
-        "status": "disabled"
+        "recording": false
       },
       {
+        "busy": false,
         "count": 262144,
         "granularity": 65536,
         "name": "bitmapB",
         "persistent": false,
-        "status": "disabled"
+        "recording": false
       },
       {
+        "busy": false,
         "count": 458752,
         "granularity": 65536,
         "name": "bitmapA",
         "persistent": false,
-        "status": "disabled"
+        "recording": false
       }
     ]
   }
@@ -251,25 +258,28 @@ write -P0xea 0x3fe0000 64k
   "bitmaps": {
     "drive0": [
       {
+        "busy": false,
         "count": 393216,
         "granularity": 65536,
         "name": "bitmapC",
         "persistent": false,
-        "status": "disabled"
+        "recording": false
       },
       {
+        "busy": false,
         "count": 262144,
         "granularity": 65536,
         "name": "bitmapB",
         "persistent": false,
-        "status": "disabled"
+        "recording": false
       },
       {
+        "busy": false,
         "count": 458752,
         "granularity": 65536,
         "name": "bitmapA",
         "persistent": false,
-        "status": "disabled"
+        "recording": false
       }
     ]
   }
@@ -311,32 +321,36 @@ write -P0xea 0x3fe0000 64k
   "bitmaps": {
     "drive0": [
       {
+        "busy": false,
         "count": 458752,
         "granularity": 65536,
         "name": "bitmapD",
         "persistent": false,
-        "status": "disabled"
+        "recording": false
       },
       {
+        "busy": false,
         "count": 393216,
         "granularity": 65536,
         "name": "bitmapC",
         "persistent": false,
-        "status": "disabled"
+        "recording": false
       },
       {
+        "busy": false,
         "count": 262144,
         "granularity": 65536,
         "name": "bitmapB",
         "persistent": false,
-        "status": "disabled"
+        "recording": false
       },
       {
+        "busy": false,
         "count": 458752,
         "granularity": 65536,
         "name": "bitmapA",
         "persistent": false,
-        "status": "disabled"
+        "recording": false
       }
     ]
   }

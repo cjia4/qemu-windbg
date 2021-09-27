@@ -38,7 +38,7 @@
 #
 # @icount: current number of executed instructions.
 #
-# Since: 4.0
+# Since: 5.2
 #
 ##
 { 'struct': 'ReplayInfo',
@@ -53,7 +53,7 @@
 #
 # Returns: record/replay information.
 #
-# Since: 4.0
+# Since: 5.2
 #
 # Example:
 #
@@ -76,7 +76,7 @@
 #
 # @icount: instruction count to stop at
 #
-# Since: 4.0
+# Since: 5.2
 #
 # Example:
 #
@@ -91,7 +91,7 @@
 # Remove replay breakpoint which was set with @replay-break.
 # The command is ignored when there are no replay breakpoints.
 #
-# Since: 4.0
+# Since: 5.2
 #
 # Example:
 #
@@ -112,7 +112,7 @@
 #
 # @icount: target instruction count
 #
-# Since: 4.0
+# Since: 5.2
 #
 # Example:
 #

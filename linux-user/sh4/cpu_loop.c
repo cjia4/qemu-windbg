@@ -18,12 +18,15 @@
  */
 
 #include "qemu/osdep.h"
+#include "qemu-common.h"
 #include "qemu.h"
+#include "user-internals.h"
 #include "cpu_loop-common.h"
+#include "signal-common.h"
 
 void cpu_loop(CPUSH4State *env)
 {
-    CPUState *cs = CPU(sh_env_get_cpu(env));
+    CPUState *cs = env_cpu(env);
     int trapnr, ret;
     target_siginfo_t info;
 
@@ -76,7 +79,7 @@ void cpu_loop(CPUSH4State *env)
             break;
         default:
             fprintf(stderr, "Unhandled trap: 0x%x\n", trapnr);
-            cpu_dump_state(cs, stderr, fprintf, 0);
+            cpu_dump_state(cs, stderr, 0);
             exit(EXIT_FAILURE);
         }
         process_pending_signals (env);

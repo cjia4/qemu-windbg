@@ -23,10 +23,9 @@
  */
 
 #include "qemu/osdep.h"
-#include "hw/hw.h"
 #include "qemu/error-report.h"
+#include "qemu/module.h"
 #include "qapi/error.h"
-#include "hw/qdev.h"
 #include "hw/virtio/virtio-bus.h"
 #include "hw/virtio/virtio.h"
 #include "exec/address-spaces.h"
@@ -67,6 +66,11 @@ void virtio_bus_device_plugged(VirtIODevice *vdev, Error **errp)
                                             &local_err);
     if (local_err) {
         error_propagate(errp, local_err);
+        return;
+    }
+
+    if (has_iommu && !virtio_host_has_feature(vdev, VIRTIO_F_IOMMU_PLATFORM)) {
+        error_setg(errp, "iommu_platform=true is not supported by the device");
         return;
     }
 
@@ -289,6 +293,10 @@ int virtio_bus_set_host_notifier(VirtioBusState *bus, int n, bool assign)
         k->ioeventfd_assign(proxy, notifier, n, false);
     }
 
+    if (r == 0) {
+        virtio_queue_set_host_notifier_enabled(vq, assign);
+    }
+
     return r;
 }
 
@@ -315,6 +323,20 @@ static char *virtio_bus_get_dev_path(DeviceState *dev)
 static char *virtio_bus_get_fw_dev_path(DeviceState *dev)
 {
     return NULL;
+}
+
+bool virtio_bus_device_iommu_enabled(VirtIODevice *vdev)
+{
+    DeviceState *qdev = DEVICE(vdev);
+    BusState *qbus = BUS(qdev_get_parent_bus(qdev));
+    VirtioBusState *bus = VIRTIO_BUS(qbus);
+    VirtioBusClass *klass = VIRTIO_BUS_GET_CLASS(bus);
+
+    if (!klass->iommu_enabled) {
+        return false;
+    }
+
+    return klass->iommu_enabled(qbus->parent);
 }
 
 static void virtio_bus_class_init(ObjectClass *klass, void *data)

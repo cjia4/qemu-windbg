@@ -26,9 +26,9 @@
 #include "../rdma_backend_defs.h"
 #include "../rdma_rm_defs.h"
 
-#include "standard-headers/drivers/infiniband/hw/vmw_pvrdma/pvrdma_ring.h"
 #include "standard-headers/drivers/infiniband/hw/vmw_pvrdma/pvrdma_dev_api.h"
 #include "pvrdma_dev_ring.h"
+#include "qom/object.h"
 
 /* BARs */
 #define RDMA_MSIX_BAR_IDX    0
@@ -63,14 +63,22 @@ typedef struct DSRInfo {
     union pvrdma_cmd_req *req;
     union pvrdma_cmd_resp *rsp;
 
-    struct pvrdma_ring *async_ring_state;
+    PvrdmaRingState *async_ring_state;
     PvrdmaRing async;
 
-    struct pvrdma_ring *cq_ring_state;
+    PvrdmaRingState *cq_ring_state;
     PvrdmaRing cq;
 } DSRInfo;
 
-typedef struct PVRDMADev {
+typedef struct PVRDMADevStats {
+    uint64_t commands;
+    uint64_t regs_reads;
+    uint64_t regs_writes;
+    uint64_t uar_writes;
+    uint64_t interrupts;
+} PVRDMADevStats;
+
+struct PVRDMADev {
     PCIDevice parent_obj;
     MemoryRegion msix;
     MemoryRegion regs;
@@ -89,8 +97,11 @@ typedef struct PVRDMADev {
     CharBackend mad_chr;
     VMXNET3State *func0;
     Notifier shutdown_notifier;
-} PVRDMADev;
-#define PVRDMA_DEV(dev) OBJECT_CHECK(PVRDMADev, (dev), PVRDMA_HW_NAME)
+    PVRDMADevStats stats;
+};
+typedef struct PVRDMADev PVRDMADev;
+DECLARE_INSTANCE_CHECKER(PVRDMADev, PVRDMA_DEV,
+                         PVRDMA_HW_NAME)
 
 static inline int get_reg_val(PVRDMADev *dev, hwaddr addr, uint32_t *val)
 {
@@ -123,10 +134,11 @@ static inline void post_interrupt(PVRDMADev *dev, unsigned vector)
     PCIDevice *pci_dev = PCI_DEVICE(dev);
 
     if (likely(!dev->interrupt_mask)) {
+        dev->stats.interrupts++;
         msix_notify(pci_dev, vector);
     }
 }
 
-int execute_command(PVRDMADev *dev);
+int pvrdma_exec_cmd(PVRDMADev *dev);
 
 #endif

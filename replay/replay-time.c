@@ -10,7 +10,6 @@
  */
 
 #include "qemu/osdep.h"
-#include "qemu-common.h"
 #include "sysemu/replay.h"
 #include "replay-internal.h"
 #include "qemu/error-report.h"
@@ -47,12 +46,12 @@ void replay_read_next_clock(ReplayClockKind kind)
 }
 
 /*! Reads next clock event from the input. */
-int64_t replay_read_clock(ReplayClockKind kind)
+int64_t replay_read_clock(ReplayClockKind kind, int64_t raw_icount)
 {
     int64_t ret;
     g_assert(replay_file && replay_mutex_locked());
 
-    replay_account_executed_instructions();
+    replay_advance_current_icount(raw_icount);
 
     if (replay_next_event_is(EVENT_CLOCK + kind)) {
         replay_read_next_clock(kind);

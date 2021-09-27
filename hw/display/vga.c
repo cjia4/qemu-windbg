@@ -21,10 +21,11 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 #include "qemu/osdep.h"
 #include "qemu/units.h"
+#include "sysemu/reset.h"
 #include "qapi/error.h"
-#include "hw/hw.h"
 #include "hw/display/vga.h"
 #include "hw/pci/pci.h"
 #include "vga_int.h"
@@ -32,10 +33,13 @@
 #include "ui/pixel_ops.h"
 #include "qemu/timer.h"
 #include "hw/xen/xen.h"
+#include "migration/vmstate.h"
 #include "trace.h"
 
 //#define DEBUG_VGA_MEM
 //#define DEBUG_VGA_REG
+
+bool have_vga = true;
 
 /* 16 state changes per vertical frame @60 Hz */
 #define VGA_TEXT_CURSOR_PERIOD_MS       (1000 * 2 * 16 / 60)
@@ -748,7 +752,8 @@ void vbe_ioport_write_data(void *opaque, uint32_t addr, uint32_t val)
                 val == VBE_DISPI_ID1 ||
                 val == VBE_DISPI_ID2 ||
                 val == VBE_DISPI_ID3 ||
-                val == VBE_DISPI_ID4) {
+                val == VBE_DISPI_ID4 ||
+                val == VBE_DISPI_ID5) {
                 s->vbe_regs[s->vbe_index] = val;
             }
             break;
@@ -1007,6 +1012,7 @@ void vga_mem_writeb(VGACommonState *s, hwaddr addr, uint32_t val)
 typedef void vga_draw_line_func(VGACommonState *s1, uint8_t *d,
                                 uint32_t srcaddr, int width);
 
+#include "vga-access.h"
 #include "vga-helpers.h"
 
 /* return true if the palette was modified */
@@ -1671,7 +1677,6 @@ static void vga_draw_graphic(VGACommonState *s, int full_update)
         if (!(s->cr[VGA_CRTC_MODE] & 2)) {
             addr = (addr & ~0x8000) | ((y1 & 2) << 14);
         }
-        update = full_update;
         page0 = addr & s->vbe_size_mask;
         page1 = (addr + bwidth - 1) & s->vbe_size_mask;
         if (full_update) {
@@ -2297,18 +2302,4 @@ void vga_init(VGACommonState *s, Object *obj, MemoryRegion *address_space,
         portio_list_init(&s->vbe_port_list, obj, vbe_ports, s, "vbe");
         portio_list_add(&s->vbe_port_list, address_space_io, 0x1ce);
     }
-}
-
-void vga_init_vbe(VGACommonState *s, Object *obj, MemoryRegion *system_memory)
-{
-    /* With pc-0.12 and below we map both the PCI BAR and the fixed VBE region,
-     * so use an alias to avoid double-mapping the same region.
-     */
-    memory_region_init_alias(&s->vram_vbe, obj, "vram.vbe",
-                             &s->vram, 0, memory_region_size(&s->vram));
-    /* XXX: use optimized standard vga accesses */
-    memory_region_add_subregion(system_memory,
-                                VBE_DISPI_LFB_PHYSICAL_ADDRESS,
-                                &s->vram_vbe);
-    s->vbe_mapped = 1;
 }

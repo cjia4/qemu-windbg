@@ -162,6 +162,7 @@ struct smbios_type_3 {
     uint8_t height;
     uint8_t number_of_power_cords;
     uint8_t contained_element_count;
+    uint8_t contained_element_record_length;
     uint8_t sku_number_str;
     /* contained elements follow */
 } QEMU_PACKED;
@@ -257,6 +258,17 @@ struct smbios_type_32 {
     uint8_t boot_status;
 } QEMU_PACKED;
 
+/* SMBIOS type 41 - Onboard Devices Extended Information */
+struct smbios_type_41 {
+    struct smbios_structure_header header;
+    uint8_t reference_designation_str;
+    uint8_t device_type;
+    uint8_t device_type_instance;
+    uint16_t segment_group_number;
+    uint8_t bus_number;
+    uint8_t device_number;
+} QEMU_PACKED;
+
 /* SMBIOS type 127 -- End-of-table */
 struct smbios_type_127 {
     struct smbios_structure_header header;
@@ -267,9 +279,11 @@ void smbios_set_cpuid(uint32_t version, uint32_t features);
 void smbios_set_defaults(const char *manufacturer, const char *product,
                          const char *version, bool legacy_mode,
                          bool uuid_encoded, SmbiosEntryPointType ep_type);
-uint8_t *smbios_get_table_legacy(size_t *length);
-void smbios_get_tables(const struct smbios_phys_mem_area *mem_array,
+uint8_t *smbios_get_table_legacy(MachineState *ms, size_t *length);
+void smbios_get_tables(MachineState *ms,
+                       const struct smbios_phys_mem_area *mem_array,
                        const unsigned int mem_array_size,
                        uint8_t **tables, size_t *tables_len,
-                       uint8_t **anchor, size_t *anchor_len);
+                       uint8_t **anchor, size_t *anchor_len,
+                       Error **errp);
 #endif /* QEMU_SMBIOS_H */

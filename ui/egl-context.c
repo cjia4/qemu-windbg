@@ -1,5 +1,4 @@
 #include "qemu/osdep.h"
-#include "qemu-common.h"
 #include "ui/egl-context.h"
 
 QEMUGLContext qemu_egl_create_context(DisplayChangeListener *dcl,
@@ -35,9 +34,4 @@ int qemu_egl_make_context_current(DisplayChangeListener *dcl,
 {
    return eglMakeCurrent(qemu_egl_display,
                          EGL_NO_SURFACE, EGL_NO_SURFACE, ctx);
-}
-
-QEMUGLContext qemu_egl_get_current_context(DisplayChangeListener *dcl)
-{
-    return eglGetCurrentContext();
 }

@@ -11,10 +11,9 @@
 
 #include "qemu/osdep.h"
 #include "qapi/error.h"
-#include "qemu-common.h"
 #include "sysemu/replay.h"
+#include "sysemu/runstate.h"
 #include "replay-internal.h"
-#include "sysemu/sysemu.h"
 #include "monitor/monitor.h"
 #include "qapi/qmp/qstring.h"
 #include "qemu/error-report.h"
@@ -27,7 +26,6 @@ static int replay_pre_save(void *opaque)
 {
     ReplayState *state = opaque;
     state->file_offset = ftell(replay_file);
-    state->host_clock_last = qemu_clock_get_last(QEMU_CLOCK_HOST);
 
     return 0;
 }
@@ -37,7 +35,6 @@ static int replay_post_load(void *opaque, int version_id)
     ReplayState *state = opaque;
     if (replay_mode == REPLAY_MODE_PLAY) {
         fseek(replay_file, state->file_offset, SEEK_SET);
-        qemu_clock_set_last(QEMU_CLOCK_HOST, state->host_clock_last);
         /* If this was a vmstate, saved in recording mode,
            we need to initialize replay data fields. */
         replay_fetch_data_kind();
@@ -55,7 +52,7 @@ static void replay_create_snapshot(void *opaque)
 {
     Error *err = NULL;
     char *snapshot_name = g_strdup_printf("auto_%" PRId64, snapshot_count);
-    if (save_snapshot(snapshot_name, &err)) {
+    if (save_snapshot(snapshot_name, true, NULL, false, NULL, &err)) {
         error_report("Could not create periodical snapshot\n");
     } else {
         snapshot_count++;
@@ -65,8 +62,8 @@ static void replay_create_snapshot(void *opaque)
 
 static const VMStateDescription vmstate_replay = {
     .name = "replay",
-    .version_id = 1,
-    .minimum_version_id = 1,
+    .version_id = 2,
+    .minimum_version_id = 2,
     .pre_save = replay_pre_save,
     .post_load = replay_post_load,
     .fields = (VMStateField[]) {
@@ -77,7 +74,6 @@ static const VMStateDescription vmstate_replay = {
         VMSTATE_UINT32(has_unread_data, ReplayState),
         VMSTATE_UINT64(file_offset, ReplayState),
         VMSTATE_UINT64(block_request_id, ReplayState),
-        VMSTATE_UINT64(host_clock_last, ReplayState),
         VMSTATE_INT32(read_event_kind, ReplayState),
         VMSTATE_UINT64(read_event_id, ReplayState),
         VMSTATE_INT32(read_event_checkpoint, ReplayState),
@@ -90,7 +86,7 @@ void replay_vmstate_register(void)
     vmstate_register(NULL, 0, &vmstate_replay, &replay_state);
 }
 
-static void replay_vm_change_state_handler(void *opaque, int running,
+static void replay_vm_change_state_handler(void *opaque, bool running,
                                            RunState state)
 {
     if (running) {
@@ -106,13 +102,14 @@ void replay_vmstate_init(void)
 
     if (replay_snapshot) {
         if (replay_mode == REPLAY_MODE_RECORD) {
-            if (save_snapshot(replay_snapshot, &err) != 0) {
+            if (!save_snapshot(replay_snapshot,
+                               true, NULL, false, NULL, &err)) {
                 error_report_err(err);
                 error_report("Could not create snapshot for icount record");
                 exit(1);
             }
         } else if (replay_mode == REPLAY_MODE_PLAY) {
-            if (load_snapshot(replay_snapshot, &err) != 0) {
+            if (!load_snapshot(replay_snapshot, NULL, false, NULL, &err)) {
                 error_report_err(err);
                 error_report("Could not load snapshot for icount replay");
                 exit(1);
@@ -126,7 +123,7 @@ void replay_vmstate_init(void)
             qemu_clock_get_ns(QEMU_CLOCK_REALTIME) + NANOSECONDS_PER_SECOND * replay_period);
         replay_change_state_entry = qemu_add_vm_change_state_handler(
             replay_vm_change_state_handler, NULL);
-    }   
+    }
 }
 
 bool replay_can_snapshot(void)

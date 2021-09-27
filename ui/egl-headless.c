@@ -1,5 +1,5 @@
 #include "qemu/osdep.h"
-#include "qemu-common.h"
+#include "qemu/module.h"
 #include "sysemu/sysemu.h"
 #include "ui/console.h"
 #include "ui/egl-helpers.h"
@@ -133,8 +133,6 @@ static void egl_scanout_flush(DisplayChangeListener *dcl,
     if (!edpy->guest_fb.texture || !edpy->ds) {
         return;
     }
-    assert(surface_width(edpy->ds)  == edpy->guest_fb.width);
-    assert(surface_height(edpy->ds) == edpy->guest_fb.height);
     assert(surface_format(edpy->ds) == PIXMAN_x8r8g8b8);
 
     if (edpy->cursor_fb.texture) {
@@ -149,7 +147,7 @@ static void egl_scanout_flush(DisplayChangeListener *dcl,
         egl_fb_blit(&edpy->blit_fb, &edpy->guest_fb, edpy->y_0_top);
     }
 
-    egl_fb_read(surface_data(edpy->ds), &edpy->blit_fb);
+    egl_fb_read(edpy->ds, &edpy->blit_fb);
     dpy_gfx_update(edpy->dcl.con, x, y, w, h);
 }
 
@@ -162,7 +160,6 @@ static const DisplayChangeListenerOps egl_ops = {
     .dpy_gl_ctx_create       = egl_create_context,
     .dpy_gl_ctx_destroy      = qemu_egl_destroy_context,
     .dpy_gl_ctx_make_current = qemu_egl_make_context_current,
-    .dpy_gl_ctx_get_current  = qemu_egl_get_current_context,
 
     .dpy_gl_scanout_disable  = egl_scanout_disable,
     .dpy_gl_scanout_texture  = egl_scanout_texture,
@@ -216,3 +213,5 @@ static void register_egl(void)
 }
 
 type_init(register_egl);
+
+module_dep("ui-opengl");
