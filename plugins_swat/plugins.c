@@ -36,9 +36,9 @@ typedef struct QemuPluginInfo {
 static QLIST_HEAD(, QemuPluginInfo) qemu_plugins
                                 = QLIST_HEAD_INITIALIZER(qemu_plugins);
 
-static QemuOptsList qemu_plugin_opts = {
-    .name = "plugin",
-    .head = QTAILQ_HEAD_INITIALIZER(qemu_plugin_opts.head),
+static QemuOptsList qemu_plugin_swat_opts = {
+    .name = "plugin-swat",
+    .head = QTAILQ_HEAD_INITIALIZER(qemu_plugin_swat_opts.head),
     .desc = {
         {
             .name = "file",
@@ -53,7 +53,7 @@ static QemuOptsList qemu_plugin_opts = {
 
 void qemu_plugin_parse_cmd_args(const char *optarg)
 {
-    QemuOpts *opts = qemu_opts_parse_noisily(&qemu_plugin_opts, optarg, false);
+    QemuOpts *opts = qemu_opts_parse_noisily(&qemu_plugin_swat_opts, optarg, false);
     qemu_plugin_load(qemu_opt_get(opts, "file"),
         qemu_opt_get(opts, "args"));
 }

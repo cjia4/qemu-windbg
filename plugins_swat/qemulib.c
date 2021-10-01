@@ -22,9 +22,13 @@ int qemulib_read_memory(void *cpu, uint64_t addr, uint8_t *buf, int len)
 int qemulib_read_register(void *cpu, uint8_t *mem_buf, int reg)
 {
     CPUClass *cc = CPU_GET_CLASS(cpu);
+    GByteArray buf = {
+        .data = mem_buf,
+        // len is not used
+    };
 
     if (reg < cc->gdb_num_core_regs) {
-        return cc->gdb_read_register(cpu, mem_buf, reg);
+        return cc->gdb_read_register(cpu, &buf, reg);
     }
 
     return 0;

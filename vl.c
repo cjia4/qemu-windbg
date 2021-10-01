@@ -3942,7 +3942,7 @@ int main(int argc, char **argv, char **envp)
             case QEMU_OPTION_enable_sync_profile:
                 qsp_enable();
                 break;
-#ifdef CONFIG_PLUGINS
+#ifdef CONFIG_PLUGINS_SWAT
             case QEMU_OPTION_plugin:
                 qemu_plugin_parse_cmd_args(optarg);
                 break;
@@ -4601,7 +4601,7 @@ int main(int argc, char **argv, char **envp)
 
     accel_setup_post(current_machine);
     os_setup_post();
-#ifdef CONFIG_PLUGINS
+#ifdef CONFIG_PLUGINS_SWAT
     qemu_plugins_init();
 #endif
 
