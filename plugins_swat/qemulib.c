@@ -22,16 +22,17 @@ int qemulib_read_memory(void *cpu, uint64_t addr, uint8_t *buf, int len)
 int qemulib_read_register(void *cpu, uint8_t *mem_buf, int reg)
 {
     CPUClass *cc = CPU_GET_CLASS(cpu);
-    GByteArray buf = {
-        .data = mem_buf,
-        // len is not used
-    };
+    GByteArray *gbarray = g_byte_array_new();
+    int res = 0;
 
     if (reg < cc->gdb_num_core_regs) {
-        return cc->gdb_read_register(cpu, &buf, reg);
+        res = cc->gdb_read_register(cpu, gbarray, reg);
+        memcpy(mem_buf, gbarray->data, gbarray->len);
     }
 
-    return 0;
+    g_byte_array_free(gbarray, TRUE);
+
+    return res;
 }
 
 const char *qemulib_get_arch_name(void)

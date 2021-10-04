@@ -4620,7 +4620,7 @@ SRST
 ERST
 
 #ifdef CONFIG_PLUGINS_SWAT
-DEF("plugin", HAS_ARG, QEMU_OPTION_plugin_swat,
+DEF("plugin-swat", HAS_ARG, QEMU_OPTION_plugin_swat,
     "-plugin-swat file=<file>[,args=<args>] load <dso> plugin with <args>\n",
     QEMU_ARCH_ALL)
 SRST

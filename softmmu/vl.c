@@ -126,6 +126,7 @@
 #include "qapi/qmp/qerror.h"
 #include "sysemu/iothread.h"
 #include "qemu/guest-random.h"
+#include "qemu/plugins.h"
 
 #include "config-host.h"
 
@@ -3485,6 +3486,11 @@ void qemu_init(int argc, char **argv, char **envp)
             case QEMU_OPTION_plugin:
                 qemu_plugin_opt_parse(optarg, &plugin_list);
                 break;
+#ifdef CONFIG_PLUGINS_SWAT
+            case QEMU_OPTION_plugin_swat:
+                qemu_plugin_parse_cmd_args(optarg);
+                break;
+#endif
             case QEMU_OPTION_readconfig:
                 qemu_read_config_file(optarg, qemu_parse_config_group, &error_fatal);
                 break;
@@ -3727,4 +3733,7 @@ void qemu_init(int argc, char **argv, char **envp)
     accel_setup_post(current_machine);
     os_setup_post();
     resume_mux_open();
+#ifdef CONFIG_PLUGINS_SWAT
+    qemu_plugins_init();
+#endif
 }
